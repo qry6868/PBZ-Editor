@@ -3,7 +3,8 @@ import json
 
 import pytest
 
-from pbz_editor.core import EditorError, LosslessJSON, edit_inventory, inventory_level, medicine_slots
+from pbz_editor.compatibility import slot_category_issue
+from pbz_editor.core import EditorError, LosslessJSON, edit_dust, edit_inventory, inventory_level, medicine_slots
 
 
 def source():
@@ -15,6 +16,25 @@ def test_native_omitted_grade_one_is_initial_strengthening(category, field):
     assert inventory_level(category, {}) == 0
     assert inventory_level(category, {field: 1}) == 0
     assert inventory_level(category, {field: 2}) == 1
+
+
+def test_changed_build_accepts_native_omitted_grade_one():
+    inventory = {'MainWeaponInfos': {'Sword': {'AlreadySnapSoul': 0}}, 'ShaChiWeaponInfo': {'HuoLiuXing': {}}}
+    assert slot_category_issue(inventory, 'weapon') is None
+    assert slot_category_issue(inventory, 'phantom') is None
+    assert slot_category_issue({'MainWeaponInfos': {'Sword': {'WeaponLevel': '2'}}}, 'weapon') is not None
+
+
+def test_dust_is_set_in_place_and_cannot_be_added_or_removed():
+    raw = b'{"Player":{"RemainingDays":65,"Dust":6930,"X":0.10000000000000001},"Inventory":{}}'
+    edited, changes = edit_dust(raw, [{'id': 'Dust', 'category': 'dust', 'action': 'set', 'quantity': 999999}])
+    assert edited == raw.replace(b'6930', b'999999')
+    assert (changes[0]['before'], changes[0]['after']) == (6930, 999999)
+    for action in ('add', 'remove'):
+        with pytest.raises(EditorError):
+            edit_dust(raw, [{'id': 'Dust', 'category': 'dust', 'action': action, 'quantity': 1}])
+    with pytest.raises(EditorError):
+        edit_dust(b'{"Player":{"Dust":1.5}}', [{'category': 'dust', 'quantity': 1}])
 
 
 @pytest.mark.parametrize('category,item_id,map_name,field', [
