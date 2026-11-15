@@ -160,7 +160,8 @@ def slot_category_issue(inventory, category, reference=False):
             return '该类别的存档结构已变化，仅可查看。'
         for name in required:
             value = record.get(name)
-            if (value is None and reference and name not in record):
+            # The game omits grade-1 (+0) weapon levels in every build, not only the reference one.
+            if name not in record and (reference or category in ('weapon', 'phantom')):
                 continue
             if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2_147_483_647:
                 return '该类别的数值结构已变化，仅可查看。'

@@ -292,5 +292,8 @@
   "压缩数据大小超出支持范围。": "Compressed data exceeds the supported size.",
   "压缩数据未通过内置解码校验，文件未写入。": "Compressed data failed built-in decoder validation. No file was written.",
   "存储块未通过往返校验。": "Stored blocks failed roundtrip validation.",
-  "空数据块包含了多余内容。": "An empty data block contains extra content."
+  "空数据块包含了多余内容。": "An empty data block contains extra content.",
+  "货币（Remnant Dust）": "Remnant Dust",
+  "存档中的货币字段结构已变化，仅可查看。": "The save's currency field has changed. It is read-only.",
+  "货币只能设为目标数量，不能添加或移除。": "Currency can only be set to a target amount, not added or removed."
 }

@@ -36,6 +36,7 @@ CATEGORY_FIELDS = {
     "accessory": "AccessoryInfos",
     "medicine": "MedicineInfos",
 }
+DUST_NAME = '货币（Remnant Dust）'
 KNOWN_OUTFITS = {
     'Hun_OutFit_Default', 'Hun_OutFit_Climax', 'Hun_OutFit_MoTian',
     'Hun_OutFit_YaYu', 'Hun_OutFit_FengXue', 'Hun_OutFit_ZhuiMing',
@@ -417,6 +418,28 @@ def medicine_slots(inventory: dict, item_id: str) -> list[str]:
             if str(inventory.get(field, 'None')).casefold() == item_id.casefold()]
 
 
+def dust_issue(slot_json: dict) -> str | None:
+    player = slot_json.get('Player')
+    value = player.get('Dust') if isinstance(player, dict) else None
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2_147_483_647:
+        return '存档中的货币字段结构已变化，仅可查看。'
+    return None
+
+
+def edit_dust(raw: bytes, operations: list[dict]) -> tuple[bytes, list[dict]]:
+    editor = LosslessJSON(raw)
+    issue = dust_issue(editor.value)
+    if issue:
+        raise EditorError(issue)
+    if any(op.get('action', 'set') != 'set' for op in operations):
+        raise EditorError('货币只能设为目标数量，不能添加或移除。')
+    before = editor.value['Player']['Dust']
+    after = [_int(op.get('quantity'), '货币数量') for op in operations][-1]
+    editor.set(['Player', 'Dust'], after)
+    return editor.bytes(), [{'action': 'set', 'id': 'Dust', 'category': 'dust', 'name': DUST_NAME,
+                             'before': before, 'after': after}]
+
+
 def _edit_inventory_small(raw: bytes, operations: list[dict]) -> tuple[bytes, list[dict]]:
     editor = LosslessJSON(raw)
     if not isinstance(operations, list) or len(operations) > 5000:
@@ -796,6 +819,8 @@ class SaveSession:
     def category_issue(self, slot, category):
         if self.read_only:
             return '此存档格式尚未验证写入，当前仅可查看。'
+        if category == 'dust':
+            return dust_issue(self._entry(slot)['json'])
         if self.compatibility is None:
             return None
         if category not in self.compatibility['available_categories']:
@@ -817,7 +842,7 @@ class SaveSession:
                                    reference=self.compatibility['executable'] == 'reference')
 
     def can_edit(self, slot, category):
-        return category in (*CATEGORY_FIELDS, 'appearance') and self.category_issue(slot, category) is None
+        return category in (*CATEGORY_FIELDS, 'appearance', 'dust') and self.category_issue(slot, category) is None
 
     def _entry(self, slot):
         entry = next((e for e in self.entries if e["name"] == slot and "Inventory" in e["json"]), None)
@@ -826,8 +851,12 @@ class SaveSession:
         return entry
 
     def inventory(self, slot: str) -> list[dict]:
-        inventory = self._entry(slot)["json"]["Inventory"]
+        slot_json = self._entry(slot)["json"]
+        inventory = slot_json["Inventory"]
         items = []
+        if dust_issue(slot_json) is None:
+            items.append({'id': 'Dust', 'category': 'dust', 'name': DUST_NAME, 'quantity': slot_json['Player']['Dust'],
+                          'level': 0, 'record': {}, 'scope': 'slot'})
         for category, field in CATEGORY_FIELDS.items():
             records = inventory.get(field, {})
             if not isinstance(records, dict):
@@ -859,16 +888,19 @@ class SaveSession:
         entry = self._entry(slot)
         for operation in operations:
             category = operation.get('category')
-            if category not in (*CATEGORY_FIELDS, 'appearance'):
+            if category not in (*CATEGORY_FIELDS, 'appearance', 'dust'):
                 raise EditorError('该物品类别尚未支持。')
             issue = self.category_issue(slot, category)
             if issue:
                 raise EditorError(issue)
-        local_ops = [op for op in operations if op.get('category')!='appearance']
+        local_ops = [op for op in operations if op.get('category') not in ('appearance', 'dust')]
+        dust_ops = [op for op in operations if op.get('category')=='dust']
         global_ops = [op for op in operations if op.get('category')=='appearance']
         replacements,changes = {},[]
-        if local_ops:
-            modified,local_changes = edit_inventory(entry['raw'],local_ops)
+        for edit, ops in ((edit_inventory, local_ops), (edit_dust, dust_ops)):
+            if not ops:
+                continue
+            modified,local_changes = edit(replacements.get(slot, entry['raw']),ops)
             if modified != entry['raw']:
                 replacements[slot] = modified
             for change in local_changes:

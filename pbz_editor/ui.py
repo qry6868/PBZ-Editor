@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QMenu
 from PySide6.QtGui import QShortcut, QKeySequence, QPixmap, QPainter
 from PySide6.QtCore import QSize
 import threading
+from .core import DUST_NAME
 from .draft import InventoryDraft, item_key
 from .paths import resolve_game
 from . import __version__
@@ -887,7 +888,7 @@ class EditorWindow(QMainWindow):
         if key in self.item_lookup:
             return self.item_lookup[key]
         item = self.owned.get(key) or self.draft.original.get(key)
-        return {'category': key[0], 'id': item['id'], 'name': item['id']}
+        return {'category': key[0], 'id': item['id'], 'name': tr(item.get('name', item['id']))}
 
     def refresh_bag(self, *_):
         if not hasattr(self, 'bag_table'):
@@ -896,7 +897,7 @@ class EditorWindow(QMainWindow):
         keys = self.owned.keys() | (self.draft.changed_keys if self.draft else set())
         keys = [k for k in keys if (k[0] != 'goods' or self.owned.get(k, {}).get('quantity', 0) > 0 or k in self.draft.changed_keys)
                 and self._matches(self._definition(k), query)]
-        self.bag_rows = sorted(keys, key=lambda k: (tr(CATEGORIES[k[0]]), self._definition(k).get('name', k[1])))
+        self.bag_rows = sorted(keys, key=lambda k: (tr(CATEGORIES.get(k[0], '')), self._definition(k).get('name', k[1])))
         self.bag_table.blockSignals(True)
         self.bag_table.setRowCount(len(keys))
         selected_row = -1
@@ -952,7 +953,7 @@ class EditorWindow(QMainWindow):
         medicine = key[0] == 'medicine'
         self.quantity_label.setText(tr('剩余次数') if medicine else tr('目标数量'))
         for w in (self.quantity_label, self.quantity_field):
-            w.setVisible(key[0] in ('goods', 'medicine'))
+            w.setVisible(key[0] in ('goods', 'medicine', 'dust'))
         for w in (self.level_label, self.level_field):
             w.setVisible(key[0] in LEVELED)
         for w in (self.medicine_slot_label, self.medicine_slot):
@@ -1011,7 +1012,7 @@ class EditorWindow(QMainWindow):
         if not self.draft or not key or key not in self.owned or self.busy or not self.session.can_edit(self.slot_name(), key[0]):
             return
         item = self._definition(key)
-        quantity = self.quantity_spin.value() if key[0] in ('goods', 'medicine') else 1
+        quantity = self.quantity_spin.value() if key[0] in ('goods', 'medicine', 'dust') else 1
         op = {'action': 'set', 'id': self.owned[key]['id'], 'category': key[0], 'quantity': quantity,
               'level': self.level_spin.value() if key[0] in LEVELED else 0}
         if item.get('max_level') is not None:
@@ -1072,7 +1073,7 @@ class EditorWindow(QMainWindow):
         selected_editable = bool(ready and item and self.session.can_edit(self.slot_name(), item['category']))
         self.add_button.setEnabled(ready and bool(item and item.get('supported', True)) and (present or selected_editable))
         bag_editable = bool(ready and self.bag_selected and self.session.can_edit(self.slot_name(), self.bag_selected[0]))
-        self.remove_button.setEnabled(bag_editable and self.bag_selected in self.owned)
+        self.remove_button.setEnabled(bag_editable and self.bag_selected in self.owned and self.bag_selected[0] != 'dust')
         self.editor.setEnabled(bag_editable)
         self.advanced_action.setEnabled(ready and any(self.session.can_edit(self.slot_name(), c) for c in CATEGORIES if c != 'all'))
         if ready and self.bag_selected and not bag_editable:
@@ -1096,6 +1097,8 @@ class EditorWindow(QMainWindow):
         elif report:
             blocked = [tr(CATEGORIES[c]) for c in CATEGORIES if c != 'all'
                        and not self.session.can_edit(self.slot_name(), c)]
+            if not self.session.can_edit(self.slot_name(), 'dust'):
+                blocked.append(tr(DUST_NAME))
             if blocked:
                 notes.append(tr('部分功能仅可查看：{0}。', ' / '.join(blocked)))
             if report['executable'] != 'reference' or report.get('structural_categories'):
