@@ -4,6 +4,7 @@ from PySide6.QtWidgets import QMenu
 from PySide6.QtGui import QShortcut, QKeySequence, QPixmap, QPainter
 from PySide6.QtCore import QSize
 import threading
+from .core import EditorError, SaveChangedError
 from .draft import InventoryDraft, item_key
 from .paths import resolve_game
 from . import __version__
@@ -551,7 +552,7 @@ class EditorWindow(QMainWindow):
             self.items, self.item_lookup = [], {}
         self.refresh_all()
 
-    def run_task(self, title, function, done):
+    def run_task(self, title, function, done, on_error=None):
         if self.busy:
             return
         self.busy = True
@@ -571,7 +572,8 @@ class EditorWindow(QMainWindow):
                     self.status.setText(tr('已取消准备，可点击重新准备。'))
                 else:
                     self.status.setText(tr('操作未完成；当前背包修改仍保留。'))
-                    QMessageBox.warning(self, tr('操作未完成'), value)
+                    if on_error is None or not on_error(value):
+                        QMessageBox.warning(self, tr('操作未完成'), str(value))
                 if was_preparing:
                     self.welcome.show()
                     self.retry_button.show()
@@ -597,11 +599,11 @@ class EditorWindow(QMainWindow):
         else:
             continuation()
 
-    def load_save(self, path):
+    def load_save(self, path, *, reload_current=False):
         if self.busy:
             return
         def start():
-            game = self.settings.get('game_dir')
+            game = self.session.game_dir if reload_current else self.settings.get('game_dir')
             if not game:
                 self.welcome.show()
                 self.welcome_text.setText(tr('尚未找到游戏。选择 PBZ 安装位置后，会自动查找存档。'))
@@ -613,6 +615,8 @@ class EditorWindow(QMainWindow):
             self._prepare_cancel = threading.Event()
             self._pending_save = str(path)
             self.retry_button.hide()
+            slot = self.slot_name() if reload_current else None
+            region = self.region_filter.currentData()
             def prepare_and_load():
                 generated = None
                 if not self._custom_catalog:
@@ -621,26 +625,35 @@ class EditorWindow(QMainWindow):
                 if self._prepare_cancel.is_set():
                     raise InterruptedError(tr('已取消准备'))
                 self.preparation_progress.emit(tr('正在读取所选进度…'))
-                return generated, SaveSession.open(path, game, self.settings.get('oodle_path') or None)
+                session = SaveSession.open(path, game, self.settings.get('oodle_path') or None)
+                if not session.slots:
+                    raise EditorError('此存档没有可读取的进度。')
+                return generated, session
             def loaded(result):
                 generated, session = result
                 if generated:
                     self.load_catalog(generated)
-                self.accept_session(session)
+                    if reload_current:
+                        self.region_filter.setCurrentIndex(max(0, self.region_filter.findData(region)))
+                self.accept_session(session, slot)
             self.run_task(tr('正在准备本机游戏数据…'), prepare_and_load, loaded)
-        self._resolve_changes(start)
+        if reload_current:
+            start()
+        else:
+            self._resolve_changes(start)
 
-    def accept_session(self, session):
+    def accept_session(self, session, reloaded_slot=None):
         self.session = session
         self.welcome.hide()
         self.save_file_label.setText(session.save_path.name)
         self.save_file_label.setToolTip(str(session.save_path))
         self.settings['last_save'] = str(session.save_path)
         save_settings(self.settings)
-        self._fill_slots(session.current_slot)
+        self._fill_slots(reloaded_slot or session.current_slot)
         self._new_draft(self.slot_combo.currentData())
         self._ensure_icons()
-        self.status.setText(tr('左侧添加物品，右侧调整背包；完成后点击右上角保存。'))
+        self.status.setText(tr('已读取最新存档。请确认上方进度，再重新调整背包。') if reloaded_slot else
+                            tr('左侧添加物品，右侧调整背包；完成后点击右上角保存。'))
         self.session_loaded.emit()
 
     def _fill_slots(self, selected):
@@ -656,7 +669,8 @@ class EditorWindow(QMainWindow):
             if name == session.current_slot:
                 prefix += tr('（继续游戏）')
             self.slot_combo.addItem(f"{prefix} · {slot.get('date', '')}", name)
-        self.slot_combo.setCurrentIndex(max(0, self.slot_combo.findData(selected)))
+        index = self.slot_combo.findData(selected)
+        self.slot_combo.setCurrentIndex(index if index >= 0 else self.slot_combo.findData(session.current_slot))
         self.slot_combo.blockSignals(False)
 
     def _new_draft(self, slot):
@@ -1126,7 +1140,25 @@ class EditorWindow(QMainWindow):
             self.status.setText(tr('背包已保存，已自动备份。'))
             if after:
                 after()
-        self.run_task(tr('正在自动备份并保存背包…'), lambda: session.apply(slot, operations), saved)
+        self.run_task(tr('正在自动备份并保存背包…'), lambda: session.apply(slot, operations), saved,
+                      on_error=self._offer_save_reload)
+
+    def _offer_save_reload(self, error):
+        if not isinstance(error, SaveChangedError):
+            return False
+        dialog = QMessageBox(self)
+        dialog.setIcon(QMessageBox.Icon.Warning)
+        dialog.setWindowTitle(tr('存档已更新'))
+        dialog.setText(translate_message(str(error)))
+        dialog.setInformativeText(tr('请先完全退出游戏。重新读取成功后，本次未保存的修改将被清除，请按最新进度重新调整。'))
+        reload_button = dialog.addButton(tr('重新读取存档'), QMessageBox.ButtonRole.AcceptRole)
+        keep_button = dialog.addButton(tr('保留当前修改'), QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(keep_button)
+        dialog.setEscapeButton(keep_button)
+        dialog.exec()
+        if dialog.clickedButton() is reload_button:
+            self.load_save(self.session.save_path, reload_current=True)
+        return True
 
     def export_save(self):
         if not self.draft or self.busy:

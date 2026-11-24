@@ -24,7 +24,7 @@ def test_translations_cover_ui_and_keep_format_fields():
 
 
 @pytest.mark.parametrize(('source', 'target'), [
-    ('游戏仍在运行。请退出游戏后写入，避免自动保存覆盖修改。', 'The game is running. Exit it before saving changes.'),
+    ('游戏仍在运行。请完全退出游戏到桌面，再点击保存存档。', 'The game is still running. Exit to the desktop, then click Save changes again.'),
     ('未知压缩算法：9。', 'Unknown compression algorithm: 9.'),
     ('存档槽 ManualSave1 中的 JSON 无效。', 'Invalid JSON in save slot ManualSave1.'),
     ('C:/test/file.sav', 'C:/test/file.sav'),

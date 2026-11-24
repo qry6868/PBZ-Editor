@@ -96,7 +96,7 @@ def value_field(spin):
 
 class WorkerSignals(QObject):
     done = Signal(object)
-    error = Signal(str)
+    error = Signal(object)
     progress = Signal(int, int)
 
 
@@ -111,7 +111,7 @@ class Worker(QRunnable):
             result = self.function()
         except Exception as error:
             logging.exception("Editor operation failed")
-            self.signals.error.emit(str(error))
+            self.signals.error.emit(error)
         else:
             self.signals.done.emit(result)
 

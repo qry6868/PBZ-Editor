@@ -27,6 +27,10 @@ class EditorError(ValueError):
     """A user-readable failure which leaves the input save unchanged."""
 
 
+class SaveChangedError(EditorError):
+    """The save on disk no longer matches the open snapshot."""
+
+
 MAX_SLOT_BYTES = 64 * 1024 * 1024
 MAX_FILE_BYTES = 256 * 1024 * 1024
 CATEGORY_FIELDS = {
@@ -920,7 +924,7 @@ class SaveSession:
     def _check_source(self):
         self._check_game()
         if not self.save_path.is_file() or sha256(self.save_path.read_bytes()) != self.source_sha256:
-            raise EditorError("存档已被游戏或其他程序更新。请重新打开存档，再应用修改。")
+            raise SaveChangedError("存档已被游戏或其他程序更新。请重新打开存档，再应用修改。")
 
     def _check_game(self):
         if self.game_signature is not None:
@@ -942,7 +946,7 @@ class SaveSession:
             if temporary.read_bytes() != data:
                 raise EditorError("写出后的文件校验失败。")
             if expected is not None and (not destination.is_file() or sha256(destination.read_bytes()) != expected):
-                raise EditorError("存档在写入前发生变化，已取消覆盖。")
+                raise SaveChangedError("存档在写入前发生变化，已取消覆盖。")
             if expected is None:
                 # Atomic create-without-replacement: an export must not clobber
                 # a file another program created after the file-picker check.
@@ -981,7 +985,7 @@ class SaveSession:
 
     def apply(self, slot: str, operations: list[dict], compression="preserve") -> dict:
         if _game_processes(self.game_dir):
-            raise EditorError("游戏仍在运行。请退出游戏后写入，避免自动保存覆盖修改。")
+            raise EditorError("游戏仍在运行。请完全退出游戏到桌面，再点击保存存档。")
         self._check_source()
         candidate, changes = self._candidate(slot, operations, compression)
         if candidate == self.source:

@@ -4,11 +4,11 @@ import os
 import zlib
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 import pytest
-from PySide6.QtCore import Qt, QCoreApplication, QEvent
+from PySide6.QtCore import Qt, QCoreApplication, QEvent, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QMessageBox
 from pbz_editor import ui
-from pbz_editor.core import PBZSContainer, SaveSession, EditorError
+from pbz_editor.core import PBZSContainer, SaveSession, EditorError, edit_inventory
 from pbz_editor.draft import InventoryDraft
 
 ITEMS = [
@@ -283,6 +283,22 @@ def test_save_commits_mixed_backpack_once_and_preserves_other_slots(opened, monk
     assert not opened.pending and not opened.undo_button.isEnabled()
     assert '已自动备份' in opened.status.text() and information == []
 
+def answer_save_conflict(monkeypatch, role):
+    dialogs = []
+    exec_dialog = ui.QMessageBox.exec
+
+    def answer(dialog):
+        assert dialog.windowTitle() == '存档已更新'
+        assert dialog.buttonRole(dialog.defaultButton()) == QMessageBox.ButtonRole.RejectRole
+        button = next(button for button in dialog.buttons() if dialog.buttonRole(button) == role)
+        dialogs.append(button.text())
+        QTimer.singleShot(0, button.click)
+        return exec_dialog(dialog)
+
+    monkeypatch.setattr(ui.QMessageBox, 'exec', answer)
+    return dialogs
+
+
 @pytest.mark.parametrize('cause', ['running', 'external'])
 def test_refused_save_preserves_draft_and_file(opened, monkeypatch, cause):
     choose(opened, 'Material')
@@ -290,14 +306,94 @@ def test_refused_save_preserves_draft_and_file(opened, monkeypatch, cause):
     session, original = opened.session, opened.session.source
     if cause == 'running':
         monkeypatch.setattr('pbz_editor.core._game_processes', lambda _: [123])
+        warnings = []
+        monkeypatch.setattr(ui.QMessageBox, 'warning', lambda _, title, message: warnings.append(message))
     else:
         session.save_path.write_bytes(b'external progress')
+        dialogs = answer_save_conflict(monkeypatch, QMessageBox.ButtonRole.RejectRole)
     expected = session.save_path.read_bytes()
     opened.apply_save()
     wait(opened)
     assert session.save_path.read_bytes() == expected and session.source == original
     assert opened.pending and opened.apply_button.isEnabled()
     assert not session.backup_dir.exists()
+    if cause == 'running':
+        assert len(warnings) == 1 and '完全退出游戏到桌面' in warnings[0]
+    else:
+        assert dialogs == ['保留当前修改']
+
+
+def test_reload_changed_save_then_edit_blackstone_from_latest_count(window, session, tmp_path, monkeypatch):
+    item_id, slot = 'Item_Piece_001', 'ManualSave1'
+    catalog = tmp_path / 'catalog.json'
+    item = {'id': item_id, 'category': 'goods', 'name': '黑石碎片'}
+    catalog.write_text(json.dumps({'items': [item]}), encoding='utf8')
+    (tmp_path / 'regions.json').write_text(json.dumps({'regions': [
+        {'id': 'PangZhen', 'name': '庞镇地区'}], 'items': [
+        {**item, 'regions': ['PangZhen'], 'evidence': [{'source': 'test'}]}]}), encoding='utf8')
+
+    def save_with_count(count):
+        raw = session._entry(slot)['raw']
+        amended, _ = edit_inventory(raw, [{**item, 'action': 'set', 'quantity': count}])
+        return session.container.encode(session.entries, {slot: amended})
+
+    def open_copy(path, game, oodle):
+        return SaveSession(path, game, session.container, path.read_bytes(), session.local_dir)
+
+    session.save_path.write_bytes(save_with_count(5))
+    window.load_catalog(catalog)
+    window.accept_session(open_copy(session.save_path, session.game_dir, None))
+    window.slot_combo.setCurrentIndex(window.slot_combo.findData(slot))
+    window.region_filter.setCurrentIndex(window.region_filter.findData('PangZhen'))
+    assert [i['id'] for i in window.visible_items] == [item_id]
+    select_bag(window, 'goods', item_id)
+    assert window.quantity_spin.value() == 5
+    window.quantity_spin.setValue(6)
+
+    latest = save_with_count(7)
+    session.save_path.write_bytes(latest)
+    monkeypatch.setattr(SaveSession, 'open', staticmethod(open_copy))
+    monkeypatch.setattr('pbz_editor.bootstrap.prepare_data', lambda *_: catalog)
+    window._custom_catalog = False
+    dialogs = answer_save_conflict(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
+    window.apply_save()
+    wait(window)
+    assert dialogs == ['重新读取存档']
+    assert window.slot_name() == slot and window.region_filter.currentData() == 'PangZhen'
+    assert not window.pending and session.save_path.read_bytes() == latest
+    assert not session.backup_dir.exists()
+
+    select_bag(window, 'goods', item_id)
+    assert window.quantity_spin.value() == 7
+    window.quantity_spin.setValue(8)
+    window.apply_save()
+    wait(window)
+    saved = session.container.decode(session.save_path.read_bytes())
+    for old, new in zip(session.container.decode(latest), saved):
+        if old['name'] != slot:
+            assert old['block'] == new['block']
+        else:
+            assert new['json']['Inventory']['InventoryInfos'][item_id]['CurrentAmount'] == 8
+    backup, = session.backup_dir.glob('*.sav')
+    assert backup.read_bytes() == latest and not window.pending
+
+
+def test_failed_reload_keeps_edits(opened, monkeypatch):
+    select_bag(opened, 'goods', 'Material')
+    opened.quantity_spin.setValue(6)
+    session = opened.session
+    session.save_path.write_bytes(b'invalid replacement')
+
+    def open_copy(path, game, oodle):
+        return SaveSession(path, game, session.container, path.read_bytes(), session.local_dir)
+
+    monkeypatch.setattr(SaveSession, 'open', staticmethod(open_copy))
+    dialogs = answer_save_conflict(monkeypatch, QMessageBox.ButtonRole.AcceptRole)
+    opened.apply_save()
+    wait(opened)
+    assert dialogs == ['重新读取存档']
+    assert opened.session is session and opened.pending[0]['quantity'] == 6
+    assert session.save_path.read_bytes() == b'invalid replacement'
 
 def test_new_medicine_replacement_is_visible_and_undoable(opened):
     choose(opened, 'Medicine_Recover')
