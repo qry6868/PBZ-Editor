@@ -2,14 +2,14 @@
 
 [简体中文](validation.zh-CN.md)
 
-Steam build **26266538** is the reference environment. v0.3.0 checks other updates for file compatibility without promising universal support. Tests use synthetic data and isolated copies. No player saves, private raw reports or private screenshots are published; README screenshots use generated demo inventories.
+Steam build **26266538** is the reference environment. Since v0.3.0, the editor checks file compatibility after game updates. Tests use synthetic data and isolated copies. No player saves, private raw reports or private screenshots are published. README screenshots use generated demo inventories.
 
 | Area | Evidence and boundary |
 | --- | --- |
 | Automated tests | Synthetic saves cover read/write boundaries, backups, external changes, untouched slots, UI behavior and language switching; they run without game resources |
 | Local game resources | 844 catalog entries, 799 editable entries and 714 item icons; compared against the local baseline using installed game text and map data |
 | File roundtrip | Disposable copies passed edits, export, backup, restore and independent decoder checks; unrelated JSON and untouched slots were checked |
-| Game readback | Five categories passed load, manual save, exit and readback in v0.2.0; the new v0.3.0 compatibility logic has no in-game readback records from other game builds |
+| Game readback | Five categories passed load, manual save, exit and readback in v0.2.0. For v0.3.1, an isolated save from Steam build **26367565** was used to verify save conflict recovery and confirm a count of 7 Blackstone fragments in the game inventory |
 | Automatic compatibility | Synthetic cases cover EXE changes, key relocation/rotation, future containers, category failures and updates during checks; reference resources also receive in-memory value-change and layout-corruption checks |
 | Packaged app | Locally checked fresh data, Chinese/space paths, minimal PATH, portable mode, migration, subsequent launch, backup-preserving upgrades and error handling |
 | Clean computer | No second Windows PC or clean VM was available; not tested |

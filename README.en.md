@@ -10,9 +10,9 @@ This started with one missed item: **Arrowward**.
 
 The plan was to get it back. That grew into a small editor with item search, map filters and icons from the game. Find something, add it to your inventory, adjust its quantity or upgrade level, then save. You can recover a missed piece of gear or try another weapon without leaving the window.
 
-**[Download the Windows app](https://github.com/qry6868/PBZ-Editor/releases/download/v0.3.0/PBZ-Editor-0.3.0-windows-x64.zip)** · [Release and checksums](https://github.com/qry6868/PBZ-Editor/releases/tag/v0.3.0) · [What's new](docs/releases/0.3.0.en.md)
+**[Download the Windows app](https://github.com/qry6868/PBZ-Editor/releases/download/v0.3.1/PBZ-Editor-0.3.1-windows-x64.zip)** · [Release notes and checksums](https://github.com/qry6868/PBZ-Editor/releases/tag/v0.3.1)
 
-The current release is **v0.3.0 preview** for Windows x64. Steam build **26266538** is the tested reference. After a game update, the editor checks the save and item data automatically; compatible features remain available rather than blocking an entire build number.
+The current release is **v0.3.1 preview** for Windows x64. After a game update, the editor checks the save and item data automatically. Features that pass the checks remain available. Steam build **26266538** is the reference environment.
 
 ## A quick look
 
@@ -32,7 +32,7 @@ These are captures of the actual app using a generated demo inventory. The file 
 
 ## Give it a try
 
-1. Download `PBZ-Editor-0.3.0-windows-x64.zip`, **extract the whole archive**, and exit the game.
+1. Download `PBZ-Editor-0.3.1-windows-x64.zip`, **extract the whole archive**, and exit the game to the desktop.
 2. Run `PBZ-Editor.exe`. It usually finds the game and save for you. If it doesn't, choose them manually; if several accounts appear, pick your own progress.
 3. Search the item library by name, or browse by category and map. Select an item and click **Add to inventory**.
 4. Adjust its quantity or level on the right, then click **Save changes** in the top corner.
@@ -40,6 +40,8 @@ These are captures of the actual app using a generated demo inventory. The file 
 No Python installation or manual DLL setup needed. The first launch takes a little time to prepare item data and icons from your installed game; later launches use the cache. Pick **`windows-x64.zip`** on the download page. The `Source code` archives are for people who want to work on the code.
 
 Switch between **简体中文 / English** at the top. Pending edits stay with you, and the app remembers your language next time.
+
+If the editor says the save file changed, exit the game and choose **Reload save**. Once it opens, check the selected progress and make your changes again. Choose **Keep current edits** if you want to review your draft first.
 
 ## What you can edit
 
@@ -53,7 +55,7 @@ A few things to keep in mind:
 - **Medicine uses still follow the game's rules.** Loading may refill them, so arbitrary counts aren't guaranteed to stay exactly as entered.
 - A map association isn't necessarily the only place to get an item. Full outfits unlock in the account wardrobe.
 
-Five sample categories passed a game load, manual save, exit and readback in v0.2.0. This release adds automatic compatibility and file-roundtrip tests; other game builds have not been tested in-game. The [validation notes](docs/validation.en.md) explain what has been tested and what remains uncertain.
+Five sample categories passed a game load, manual save, exit and readback in v0.2.0. For v0.3.1, we tested conflict recovery on an isolated save from Steam build **26367565** and confirmed the updated Blackstone fragment count in the game inventory. [Validation scope and limits](docs/validation.en.md)
 
 ## What happens after a game update?
 
